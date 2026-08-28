@@ -30,20 +30,23 @@ private val JSON_MEDIA = "application/json".toMediaType()
 data class KitchenOrder(val id:String,val number:Long,val table:String,val status:String,val foods:List<String>)
 
 class Api(ctx:Context){
- private val http=OkHttpClient.Builder().connectTimeout(12,TimeUnit.SECONDS).readTimeout(15,TimeUnit.SECONDS).build(); private val prefs=ctx.getSharedPreferences("sangkub",Context.MODE_PRIVATE)
- var token:String?=prefs.getString("access",null);private set
+ private val http=OkHttpClient.Builder().connectTimeout(12,TimeUnit.SECONDS).readTimeout(15,TimeUnit.SECONDS).build()
+ private val prefs=ctx.getSharedPreferences("sangkub",Context.MODE_PRIVATE)
+ var token:String?=prefs.getString("access",null); private set
  fun logout(){prefs.edit().clear().apply();token=null}
  private fun req(url:String)=Request.Builder().url(BASE+url).header("apikey",KEY).apply{token?.let{header("Authorization","Bearer $it")}}
  private fun saveToken(s:String){token=Json.parseToJsonElement(s).jsonObject["access_token"]!!.jsonPrimitive.content;prefs.edit().putString("access",token).apply()}
- suspend fun login(email:String,password:String):Result<Unit>=withContext(Dispatchers.IO){runCatching{val body=buildJsonObject{put("email",email);put("password",password)}.toString().toRequestBody(JSON_MEDIA);http.newCall(req("/auth/v1/token?grant_type=password").post(body).build()).execute().use{r->val s=r.body?.string().orEmpty();if(!r.isSuccessful)error("อีเมลหรือรหัสผ่านไม่ถูกต้อง");saveToken(s)};claimRestaurant()}}
- suspend fun signup(email:String,password:String):Result<Unit>=withContext(Dispatchers.IO){runCatching{val body=buildJsonObject{put("email",email);put("password",password)}.toString().toRequestBody(JSON_MEDIA);http.newCall(req("/auth/v1/signup").post(body).build()).execute().use{r->val s=r.body?.string().orEmpty();if(!r.isSuccessful)error("สมัครไม่สำเร็จ");val o=Json.parseToJsonElement(s).jsonObject;if(o["access_token"]==null)error("สมัครแล้ว กรุณายืนยันอีเมลก่อนเข้าสู่ระบบ");saveToken(s)};claimRestaurant()}}
+ suspend fun login(email:String,password:String): Result<Unit> = withContext(Dispatchers.IO){runCatching{val body=buildJsonObject{put("email",email);put("password",password)}.toString().toRequestBody(JSON_MEDIA);http.newCall(req("/auth/v1/token?grant_type=password").post(body).build()).execute().use{r->val s=r.body?.string().orEmpty();if(!r.isSuccessful)error("อีเมลหรือรหัสผ่านไม่ถูกต้อง");saveToken(s)};claimRestaurant()}}
+ suspend fun signup(email:String,password:String): Result<Unit> = withContext(Dispatchers.IO){runCatching{val body=buildJsonObject{put("email",email);put("password",password)}.toString().toRequestBody(JSON_MEDIA);http.newCall(req("/auth/v1/signup").post(body).build()).execute().use{r->val s=r.body?.string().orEmpty();if(!r.isSuccessful)error("สมัครไม่สำเร็จ");val o=Json.parseToJsonElement(s).jsonObject;if(o["access_token"]==null)error("สมัครแล้ว กรุณายืนยันอีเมลก่อนเข้าสู่ระบบ");saveToken(s)};claimRestaurant()}}
  private fun claimRestaurant(){val body=buildJsonObject{put("p_name","ร้านทดสอบ สั่งครับ")}.toString().toRequestBody(JSON_MEDIA);http.newCall(req("/rest/v1/rpc/claim_test_restaurant").post(body).build()).execute().use{if(!it.isSuccessful)error(it.body?.string().orEmpty())}}
- suspend fun orders():List<KitchenOrder>=withContext(Dispatchers.IO){val url="/rest/v1/orders?select=id,order_no,status,tables(name),order_items(item_name,quantity,station)&status=in.(new,accepted,preparing,ready)&order=created_at.asc&limit=100";http.newCall(req(url).get().build()).execute().use{r->val text=r.body?.string().orEmpty();if(r.code==401){logout();error("SESSION")};if(!r.isSuccessful)error(text);Json.parseToJsonElement(text).jsonArray.map{e->val x=e.jsonObject;val table=x["tables"]?.jsonObject?.get("name")?.jsonPrimitive?.content?:"โต๊ะ";val foods=x["order_items"]?.jsonArray?.filter{it.jsonObject["station"]?.jsonPrimitive?.content=="kitchen"}?.map{"${it.jsonObject["quantity"]!!.jsonPrimitive.int} ${it.jsonObject["item_name"]!!.jsonPrimitive.content}"}?:emptyList();KitchenOrder(x["id"]!!.jsonPrimitive.content,x["order_no"]!!.jsonPrimitive.long,table,x["status"]!!.jsonPrimitive.content,foods)}}}
+ suspend fun orders(): List<KitchenOrder> = withContext(Dispatchers.IO){val url="/rest/v1/orders?select=id,order_no,status,tables(name),order_items(item_name,quantity,station)&status=in.(new,accepted,preparing,ready)&order=created_at.asc&limit=100";http.newCall(req(url).get().build()).execute().use{r->val text=r.body?.string().orEmpty();if(r.code==401){logout();error("SESSION")};if(!r.isSuccessful)error(text);Json.parseToJsonElement(text).jsonArray.map{e->val x=e.jsonObject;val table=x["tables"]?.jsonObject?.get("name")?.jsonPrimitive?.content?:"โต๊ะ";val foods=x["order_items"]?.jsonArray?.filter{it.jsonObject["station"]?.jsonPrimitive?.content=="kitchen"}?.map{"${it.jsonObject["quantity"]!!.jsonPrimitive.int} ${it.jsonObject["item_name"]!!.jsonPrimitive.content}"}?:emptyList();KitchenOrder(x["id"]!!.jsonPrimitive.content,x["order_no"]!!.jsonPrimitive.long,table,x["status"]!!.jsonPrimitive.content,foods)}}}
  suspend fun status(id:String,status:String)=withContext(Dispatchers.IO){val body=buildJsonObject{put("p_order_id",id);put("p_status",status)}.toString().toRequestBody(JSON_MEDIA);http.newCall(req("/rest/v1/rpc/set_order_status").post(body).build()).execute().use{if(!it.isSuccessful)error(it.body?.string().orEmpty())}}
 }
 
 class MainActivity:ComponentActivity(),TextToSpeech.OnInitListener{
- private var tts:TextToSpeech?=null;private var ttsReady=false;private val notify=registerForActivityResult(ActivityResultContracts.RequestPermission()){}
+ private var tts:TextToSpeech?=null
+ private var ttsReady=false
+ private val notify=registerForActivityResult(ActivityResultContracts.RequestPermission()){}
  override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);initTts();if(Build.VERSION.SDK_INT>=33)notify.launch(Manifest.permission.POST_NOTIFICATIONS);setContent{MaterialTheme{KitchenApp(Api(this)){speak(it)}}}}
  private fun initTts(){tts?.shutdown();ttsReady=false;tts=TextToSpeech(this,this)}
  override fun onInit(status:Int){if(status==TextToSpeech.SUCCESS){val engine=tts?:return;val locale=Locale("th","TH");val result=engine.setLanguage(locale);ttsReady=result!=TextToSpeech.LANG_MISSING_DATA&&result!=TextToSpeech.LANG_NOT_SUPPORTED;engine.setSpeechRate(.92f);engine.setPitch(1f)}}
@@ -52,7 +55,8 @@ class MainActivity:ComponentActivity(),TextToSpeech.OnInitListener{
  override fun onDestroy(){tts?.stop();tts?.shutdown();tts=null;super.onDestroy()}
 }
 
-@Composable fun KitchenApp(api:Api,speak:(String)->Unit){
+@Composable
+fun KitchenApp(api:Api,speak:(String)->Unit){
  val scope=rememberCoroutineScope();var email by remember{mutableStateOf("")};var pass by remember{mutableStateOf("")};var signed by remember{mutableStateOf(api.token!=null)};var sound by remember{mutableStateOf(false)};var orders by remember{mutableStateOf(emptyList<KitchenOrder>())};var msg by remember{mutableStateOf("")};val announced=remember{mutableSetOf<String>()}
  suspend fun refresh(){try{val latest=api.orders();if(sound)latest.filter{it.status=="new"&&it.id !in announced&&it.foods.isNotEmpty()}.forEach{announced.add(it.id);speak("มีออเดอร์ใหม่ ${it.table} ${it.foods.joinToString(" ")}")};orders=latest}catch(e:Exception){if(e.message=="SESSION")signed=false else msg=e.message?:"เชื่อมต่อไม่ได้"}}
  LaunchedEffect(signed){if(signed)while(true){refresh();delay(2000)}}
